@@ -1,0 +1,37 @@
+name: ssh-remote
+description: Template for remote server maintenance via SSH
+
+variables:
+  - name: host
+    prompt: "Server hostname or IP"
+  - name: user
+    default: "deploy"
+
+steps:
+  - name: Check connectivity
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "uptime"
+    timeout: 30s
+
+  - name: Run maintenance task
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "echo 'Replace with your maintenance command'"
+    timeout: 5m
+    on_error: abort
+
+  - name: Verify result
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "echo 'Replace with verification check'"
+    on_error: continue

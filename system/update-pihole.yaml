@@ -1,0 +1,97 @@
+name: update-pihole
+description: Update OS packages and Pi-hole on the Pi-hole server
+
+notify:
+  on: always
+  desktop: true
+
+variables:
+  - name: host
+    default: "pi-hole"
+  - name: user
+    default: "pi"
+
+steps:
+  - name: Check current Pi-hole version
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "pihole -v"
+    capture: pihole_version
+    on_error: continue
+
+  - name: Update apt package lists
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "sudo apt-get update"
+    timeout: 5m
+    on_error: abort
+
+  - name: Upgrade OS packages
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "sudo apt-get upgrade -y"
+    timeout: 15m
+    on_error: abort
+
+  - name: Update Pi-hole
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "sudo pihole -up"
+    timeout: 10m
+    on_error: abort
+
+  - name: Update Pi-hole gravity database
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "sudo pihole -g"
+    timeout: 5m
+    on_error: continue
+
+  - name: Check for reboot needed
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "test -f /var/run/reboot-required && echo 'reboot-needed' || echo 'no-reboot'"
+    capture: reboot_status
+    on_error: continue
+
+  - name: Confirm reboot
+    condition: "{{if eq .reboot_status \"reboot-needed\"}}true{{end}}"
+    confirm: "A reboot is required. Reboot {{.host}} now?"
+
+  - name: Reboot
+    type: ssh
+    condition: "{{if eq .reboot_status \"reboot-needed\"}}true{{end}}"
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "sudo reboot"
+    timeout: 30s
+    on_error: continue
+
+  - name: Verify Pi-hole version
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "pihole -v"
+    on_error: continue

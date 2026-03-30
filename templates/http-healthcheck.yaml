@@ -1,0 +1,37 @@
+name: http-healthcheck
+description: Template for HTTP endpoint health checking with notifications
+
+variables:
+  - name: base_url
+    prompt: "Base URL to check"
+    default: "https://example.com"
+
+notify:
+  on: failure
+  desktop: true
+
+steps:
+  - name: Check homepage
+    type: http
+    http:
+      method: GET
+      url: "{{.base_url}}"
+    timeout: 30s
+
+  - name: Check health endpoint
+    type: http
+    http:
+      method: GET
+      url: "{{.base_url}}/health"
+    timeout: 10s
+    on_error: continue
+
+  - name: Check API
+    type: http
+    http:
+      method: GET
+      url: "{{.base_url}}/api/status"
+      headers:
+        Accept: "application/json"
+    timeout: 10s
+    on_error: continue

@@ -1,0 +1,27 @@
+name: shell-basic
+description: Template for a simple local shell command sequence
+
+variables:
+  - name: project_dir
+    prompt: "Project directory"
+    default: "."
+
+steps:
+  - name: Step 1
+    type: shell
+    shell:
+      command: "echo 'Starting...'"
+      dir: "{{.project_dir}}"
+
+  - name: Step 2
+    type: shell
+    shell:
+      command: "echo 'Replace this with your command'"
+      dir: "{{.project_dir}}"
+    timeout: 5m
+
+  - name: Step 3
+    type: shell
+    shell:
+      command: "echo 'Done.'"
+    on_error: continue

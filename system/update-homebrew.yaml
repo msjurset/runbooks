@@ -1,0 +1,35 @@
+name: update-homebrew
+description: Update Homebrew packages and clean up old versions
+
+steps:
+  - name: Update Homebrew
+    type: shell
+    shell:
+      command: "brew update"
+    timeout: 2m
+
+  - name: List outdated packages
+    type: shell
+    shell:
+      command: "brew outdated"
+    capture: outdated
+    on_error: continue
+
+  - name: Upgrade all packages
+    type: shell
+    shell:
+      command: "brew upgrade"
+    timeout: 15m
+
+  - name: Clean up old versions
+    type: shell
+    shell:
+      command: "brew cleanup --prune=7"
+    timeout: 2m
+    on_error: continue
+
+  - name: Check for issues
+    type: shell
+    shell:
+      command: "brew doctor"
+    on_error: continue
