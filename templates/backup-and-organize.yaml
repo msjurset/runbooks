@@ -1,0 +1,65 @@
+name: backup-and-organize
+description: Run goback backups then organize output files with sortie
+
+variables:
+  - name: backup_job
+    prompt: "Goback backup job name (or 'all')"
+    default: "all"
+  - name: backup_dir
+    prompt: "Backup base directory"
+    default: "~/backups"
+  - name: sortie_dir
+    prompt: "Directory for sortie to organize"
+    default: "~/backups"
+
+steps:
+  - name: Check last backup age
+    type: shell
+    condition: '{{if ne .backup_job "all"}}true{{end}}'
+    shell:
+      command: |
+        last=$(goback last {{.backup_job}} 2>/dev/null) || { echo "no-backup"; exit 0; }
+        echo "Last backup: $last"
+    capture: last_backup
+    on_error: continue
+
+  - name: Run backup
+    type: shell
+    shell:
+      command: |
+        if [ "{{.backup_job}}" = "all" ]; then
+          goback now
+        else
+          goback run {{.backup_job}}
+        fi
+    timeout: 30m
+    on_error: abort
+
+  - name: Verify backup status
+    type: shell
+    shell:
+      command: "goback status"
+    capture: backup_status
+    on_error: continue
+
+  - name: Organize backup files
+    type: shell
+    shell:
+      command: "sortie scan {{.sortie_dir}}"
+    timeout: 5m
+    on_error: continue
+
+  - name: Report results
+    type: shell
+    shell:
+      command: |
+        echo "=== Backup Summary ==="
+        echo "{{.backup_status}}"
+        echo ""
+        echo "=== File Organization ==="
+        sortie history | head -20
+    on_error: continue
+
+notify:
+  on: failure
+  desktop: true

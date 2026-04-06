@@ -1,0 +1,65 @@
+name: multi-service-healthcheck
+description: Check multiple services in parallel and alert on failures
+
+variables:
+  - name: api_url
+    prompt: "API service URL"
+    default: "https://api.example.com"
+  - name: web_url
+    prompt: "Web service URL"
+    default: "https://www.example.com"
+  - name: db_host
+    prompt: "Database host"
+    default: "db.internal"
+  - name: db_user
+    default: "monitor"
+
+notify:
+  on: failure
+  desktop: true
+
+steps:
+  - name: Check API health
+    type: http
+    http:
+      method: GET
+      url: "{{.api_url}}/health"
+    capture: api_status
+    timeout: 15s
+    on_error: continue
+    parallel: true
+
+  - name: Check web health
+    type: http
+    http:
+      method: GET
+      url: "{{.web_url}}"
+    capture: web_status
+    timeout: 15s
+    on_error: continue
+    parallel: true
+
+  - name: Check database connectivity
+    type: ssh
+    ssh:
+      host: "{{.db_host}}"
+      user: "{{.db_user}}"
+      agent_auth: true
+      command: "pg_isready -h localhost"
+    capture: db_status
+    timeout: 10s
+    on_error: continue
+    parallel: true
+
+  - name: Report failures
+    type: shell
+    condition: '{{if or (eq .api_status "") (eq .web_status "") (eq .db_status "")}}true{{end}}'
+    shell:
+      command: |
+        echo "=== Health Check Report ==="
+        echo "API:  {{.api_status}}"
+        echo "Web:  {{.web_status}}"
+        echo "DB:   {{.db_status}}"
+        echo "One or more services are unhealthy."
+        exit 1
+    on_error: continue

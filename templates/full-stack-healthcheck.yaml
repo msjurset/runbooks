@@ -1,0 +1,99 @@
+name: full-stack-healthcheck
+description: Comprehensive health check with parallel checks and multi-channel notifications
+
+variables:
+  - name: web_url
+    prompt: "Web application URL"
+    default: "https://www.example.com"
+  - name: api_url
+    prompt: "API URL"
+    default: "https://api.example.com"
+  - name: db_host
+    prompt: "Database server"
+  - name: db_user
+    default: "monitor"
+  - name: cache_host
+    prompt: "Cache server (e.g., Redis)"
+    default: "redis.internal"
+  - name: slack_webhook
+    default: "op://Infrastructure/Slack/webhook"
+    secret: true
+
+notify:
+  on: failure
+  desktop: true
+  slack:
+    webhook: "{{.slack_webhook}}"
+    channel: "#ops-alerts"
+
+steps:
+  - name: Check web frontend
+    type: http
+    http:
+      method: GET
+      url: "{{.web_url}}"
+    capture: web_result
+    timeout: 15s
+    on_error: continue
+    parallel: true
+
+  - name: Check API
+    type: http
+    http:
+      method: GET
+      url: "{{.api_url}}/health"
+      headers:
+        Accept: "application/json"
+    capture: api_result
+    timeout: 15s
+    on_error: continue
+    parallel: true
+
+  - name: Check database
+    type: ssh
+    ssh:
+      host: "{{.db_host}}"
+      user: "{{.db_user}}"
+      agent_auth: true
+      command: "pg_isready -h localhost && echo 'db-ok'"
+    capture: db_result
+    timeout: 10s
+    on_error: continue
+    parallel: true
+
+  - name: Check cache
+    type: ssh
+    ssh:
+      host: "{{.cache_host}}"
+      user: "{{.db_user}}"
+      agent_auth: true
+      command: "redis-cli ping"
+    capture: cache_result
+    timeout: 10s
+    on_error: continue
+    parallel: true
+
+  - name: Check disk space
+    type: ssh
+    ssh:
+      host: "{{.db_host}}"
+      user: "{{.db_user}}"
+      agent_auth: true
+      command: |
+        usage=$(df -h / | awk 'NR==2 {print $5}' | tr -d '%')
+        echo "${usage}% used"
+        [ "$usage" -lt 90 ] || { echo "WARNING: disk above 90%"; exit 1; }
+    capture: disk_result
+    timeout: 10s
+    on_error: continue
+
+  - name: Summary
+    type: shell
+    shell:
+      command: |
+        echo "=== Health Check Summary ==="
+        echo "Web:    {{.web_result}}"
+        echo "API:    {{.api_result}}"
+        echo "DB:     {{.db_result}}"
+        echo "Cache:  {{.cache_result}}"
+        echo "Disk:   {{.disk_result}}"

@@ -38,6 +38,14 @@ Starter templates for building your own runbooks.
 | [log-rotation](templates/log-rotation.yaml) | Archive, compress, and clean old log files |
 | [service-restart](templates/service-restart.yaml) | Check service health and restart if unhealthy |
 | [git-deploy](templates/git-deploy.yaml) | Deploy from git with build, test, symlink swap, and cleanup |
+| [multi-service-healthcheck](templates/multi-service-healthcheck.yaml) | Check multiple services in parallel, alert on failures |
+| [api-deploy-with-rollback](templates/api-deploy-with-rollback.yaml) | Deploy with retry logic and automatic rollback on health failure |
+| [secret-rotation](templates/secret-rotation.yaml) | Rotate API keys and tokens using 1Password references |
+| [full-stack-healthcheck](templates/full-stack-healthcheck.yaml) | Comprehensive parallel health checks with Slack notifications |
+| [backup-and-organize](templates/backup-and-organize.yaml) | Run goback backups then organize files with sortie |
+| [backup-verify](templates/backup-verify.yaml) | Verify backup freshness across all goback jobs |
+| [download-processing](templates/download-processing.yaml) | Process and organize downloaded files using sortie |
+| [project-cleanup](templates/project-cleanup.yaml) | Clean build artifacts and archive old logs using sortie |
 
 ## How Variables Work
 

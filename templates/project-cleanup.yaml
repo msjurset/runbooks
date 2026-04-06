@@ -1,0 +1,78 @@
+name: project-cleanup
+description: Clean build artifacts, compress logs, and archive old files using sortie
+
+variables:
+  - name: project_dir
+    prompt: "Project directory to clean"
+  - name: log_dir
+    prompt: "Log directory"
+    default: "./logs"
+  - name: archive_dir
+    default: "~/Archives"
+
+steps:
+  - name: Preview cleanup with sortie
+    type: shell
+    shell:
+      command: "sortie scan --dry-run {{.project_dir}}"
+    capture: cleanup_preview
+    on_error: continue
+
+  - name: Show what will be cleaned
+    type: shell
+    shell:
+      command: |
+        echo "=== Cleanup Preview ==="
+        echo "{{.cleanup_preview}}"
+        echo ""
+        echo "Build artifacts:"
+        du -sh {{.project_dir}}/.build {{.project_dir}}/node_modules {{.project_dir}}/dist 2>/dev/null || echo "  (none found)"
+        echo ""
+        echo "Logs:"
+        du -sh {{.log_dir}} 2>/dev/null || echo "  (none found)"
+    on_error: continue
+
+  - name: Confirm cleanup
+    confirm: "Clean up {{.project_dir}}?"
+
+  - name: Run sortie cleanup rules
+    type: shell
+    shell:
+      command: "sortie scan {{.project_dir}}"
+    timeout: 10m
+    on_error: continue
+
+  - name: Compress old logs
+    type: shell
+    shell:
+      command: |
+        mkdir -p {{.archive_dir}}
+        find {{.log_dir}} -name "*.log" -mtime +7 -exec gzip {} \; 2>/dev/null
+        find {{.log_dir}} -name "*.gz" -mtime +7 -exec mv {} {{.archive_dir}}/ \; 2>/dev/null
+        echo "Compressed and archived logs older than 7 days"
+    timeout: 5m
+    on_error: continue
+
+  - name: Clean build caches
+    type: shell
+    shell:
+      command: |
+        # Swift
+        [ -d {{.project_dir}}/.build ] && rm -rf {{.project_dir}}/.build && echo "Cleaned .build"
+        # Node
+        [ -d {{.project_dir}}/node_modules ] && rm -rf {{.project_dir}}/node_modules && echo "Cleaned node_modules"
+        # Go
+        go clean -cache 2>/dev/null && echo "Cleaned Go build cache"
+        echo "Done"
+    timeout: 5m
+    on_error: continue
+
+  - name: Report disk savings
+    type: shell
+    shell:
+      command: |
+        echo "=== Disk Usage After Cleanup ==="
+        echo "Project: $(du -sh {{.project_dir}} | cut -f1)"
+        echo "Logs:    $(du -sh {{.log_dir}} 2>/dev/null | cut -f1 || echo 'n/a')"
+        echo "Archive: $(du -sh {{.archive_dir}} 2>/dev/null | cut -f1 || echo 'n/a')"
+    on_error: continue

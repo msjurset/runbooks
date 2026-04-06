@@ -1,0 +1,83 @@
+name: api-deploy-with-rollback
+description: Deploy an API service with retry logic and automatic rollback on failure
+
+variables:
+  - name: host
+    prompt: "Server hostname or IP"
+  - name: user
+    default: "deploy"
+  - name: image
+    prompt: "Docker image to deploy (e.g., myapi:v2.1.0)"
+  - name: container
+    default: "api"
+  - name: health_url
+    prompt: "Health check URL"
+    default: "http://localhost:8080/health"
+
+steps:
+  - name: Save current image for rollback
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "docker inspect --format='{{`{{.Config.Image}}`}}' {{.container}} 2>/dev/null || echo 'none'"
+    capture: previous_image
+    on_error: continue
+
+  - name: Pull new image
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "docker pull {{.image}}"
+    timeout: 5m
+    on_error: retry
+    retries: 2
+
+  - name: Confirm deployment
+    confirm: "Deploy {{.image}} to {{.host}}? Current image: {{.previous_image}}"
+
+  - name: Stop and replace container
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        docker stop {{.container}} 2>/dev/null
+        docker rm {{.container}} 2>/dev/null
+        docker run -d --name {{.container}} -p 8080:8080 --restart unless-stopped {{.image}}
+    timeout: 30s
+    on_error: abort
+
+  - name: Wait for startup
+    type: shell
+    shell:
+      command: "sleep 5"
+
+  - name: Health check with retries
+    type: http
+    http:
+      method: GET
+      url: "{{.health_url}}"
+    timeout: 10s
+    on_error: retry
+    retries: 3
+    capture: health_result
+
+  - name: Rollback on health failure
+    type: ssh
+    condition: '{{if eq .health_result ""}}true{{end}}'
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        echo "Health check failed — rolling back to {{.previous_image}}"
+        docker stop {{.container}} 2>/dev/null
+        docker rm {{.container}} 2>/dev/null
+        docker run -d --name {{.container}} -p 8080:8080 --restart unless-stopped {{.previous_image}}
+    timeout: 30s
+    on_error: abort

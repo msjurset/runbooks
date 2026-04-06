@@ -1,0 +1,82 @@
+name: backup-verify
+description: Verify backup health across all goback jobs and alert on stale backups
+
+variables:
+  - name: max_age_days
+    default: "7"
+    prompt: "Maximum backup age in days before alerting"
+
+notify:
+  on: failure
+  desktop: true
+
+steps:
+  - name: Check goback status
+    type: shell
+    shell:
+      command: "goback status"
+    capture: status_output
+    on_error: continue
+
+  - name: List configured jobs
+    type: shell
+    shell:
+      command: "goback list"
+    capture: job_list
+    on_error: abort
+
+  - name: Verify backup freshness
+    type: shell
+    shell:
+      command: |
+        stale=""
+        missing=""
+        fresh=""
+        for job in $(goback list 2>/dev/null | tail -n +2 | awk '{print $1}'); do
+          last=$(goback last "$job" 2>/dev/null)
+          if [ $? -ne 0 ]; then
+            missing="$missing $job"
+            continue
+          fi
+          last_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S%z" "$last" "+%s" 2>/dev/null || date -d "$last" "+%s" 2>/dev/null)
+          now_epoch=$(date "+%s")
+          age_days=$(( (now_epoch - last_epoch) / 86400 ))
+          if [ "$age_days" -ge {{.max_age_days}} ]; then
+            stale="$stale $job(${age_days}d)"
+          else
+            fresh="$fresh $job(${age_days}d)"
+          fi
+        done
+        echo "=== Backup Freshness Report ==="
+        [ -n "$fresh" ] && echo "Fresh:  $fresh"
+        [ -n "$stale" ] && echo "STALE:  $stale"
+        [ -n "$missing" ] && echo "NEVER:  $missing"
+        if [ -n "$stale" ] || [ -n "$missing" ]; then
+          exit 1
+        fi
+    capture: freshness_report
+    on_error: continue
+
+  - name: Run stale backups
+    type: shell
+    condition: '{{if eq .freshness_report ""}}true{{end}}'
+    shell:
+      command: |
+        echo "Running overdue backups..."
+        for job in $(goback list 2>/dev/null | tail -n +2 | awk '{print $1}'); do
+          last=$(goback last "$job" 2>/dev/null)
+          if [ $? -ne 0 ]; then
+            echo "Running $job (never backed up)..."
+            goback run "$job"
+            continue
+          fi
+          last_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S%z" "$last" "+%s" 2>/dev/null || date -d "$last" "+%s" 2>/dev/null)
+          now_epoch=$(date "+%s")
+          age_days=$(( (now_epoch - last_epoch) / 86400 ))
+          if [ "$age_days" -ge {{.max_age_days}} ]; then
+            echo "Running $job (${age_days} days old)..."
+            goback run "$job"
+          fi
+        done
+    timeout: 30m
+    on_error: continue

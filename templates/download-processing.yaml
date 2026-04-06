@@ -1,0 +1,46 @@
+name: download-processing
+description: Process and organize downloaded files using sortie
+
+variables:
+  - name: download_dir
+    default: "~/Downloads"
+  - name: organize_dir
+    default: "~/Documents"
+
+steps:
+  - name: Validate sortie rules
+    type: shell
+    shell:
+      command: "sortie validate {{.download_dir}}"
+    on_error: continue
+
+  - name: Preview what sortie will do
+    type: shell
+    shell:
+      command: "sortie scan --dry-run {{.download_dir}}"
+    capture: preview
+    on_error: continue
+
+  - name: Confirm processing
+    confirm: "Process files in {{.download_dir}}?"
+
+  - name: Run sortie scan
+    type: shell
+    shell:
+      command: "sortie scan {{.download_dir}}"
+    timeout: 10m
+    on_error: continue
+
+  - name: Show what was done
+    type: shell
+    shell:
+      command: "sortie history | head -30"
+    on_error: continue
+
+  - name: Report disk usage
+    type: shell
+    shell:
+      command: |
+        echo "Downloads: $(du -sh {{.download_dir}} | cut -f1)"
+        echo "Documents: $(du -sh {{.organize_dir}} | cut -f1)"
+    on_error: continue
