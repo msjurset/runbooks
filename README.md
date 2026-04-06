@@ -32,6 +32,12 @@ Starter templates for building your own runbooks.
 | [shell-basic](templates/shell-basic.yaml) | Simple local shell command sequence |
 | [ssh-remote](templates/ssh-remote.yaml) | Remote server maintenance via SSH |
 | [http-healthcheck](templates/http-healthcheck.yaml) | HTTP endpoint health check with notifications |
+| [docker-deploy](templates/docker-deploy.yaml) | Deploy a Docker container with image pull, swap, and health check |
+| [database-backup](templates/database-backup.yaml) | Database dump, compress, and upload to remote storage |
+| [ssl-cert-check](templates/ssl-cert-check.yaml) | Check SSL certificate expiry and warn if near |
+| [log-rotation](templates/log-rotation.yaml) | Archive, compress, and clean old log files |
+| [service-restart](templates/service-restart.yaml) | Check service health and restart if unhealthy |
+| [git-deploy](templates/git-deploy.yaml) | Deploy from git with build, test, symlink swap, and cleanup |
 
 ## How Variables Work
 

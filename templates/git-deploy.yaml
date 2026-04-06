@@ -1,0 +1,92 @@
+name: git-deploy
+description: Template for deploying from a git repository with symlink swap
+
+variables:
+  - name: host
+    prompt: "Server hostname or IP"
+  - name: user
+    default: "deploy"
+  - name: repo
+    prompt: "Git repository URL"
+  - name: branch
+    default: "main"
+  - name: deploy_dir
+    default: "/opt/app"
+  - name: service
+    prompt: "Service name to restart after deploy"
+
+steps:
+  - name: Clone or pull latest
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        RELEASE_DIR="{{.deploy_dir}}/releases/$(date +%Y%m%d-%H%M%S)"
+        mkdir -p "$RELEASE_DIR"
+        git clone --depth 1 --branch {{.branch}} {{.repo}} "$RELEASE_DIR"
+        echo "$RELEASE_DIR"
+    capture: release_dir
+    timeout: 5m
+    on_error: abort
+
+  - name: Build
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "cd {{.release_dir}} && echo 'Replace with your build command (e.g., make build, npm install)'"
+    timeout: 10m
+    on_error: abort
+
+  - name: Run tests
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "cd {{.release_dir}} && echo 'Replace with your test command (e.g., make test)'"
+    timeout: 5m
+    on_error: abort
+
+  - name: Confirm deploy
+    confirm: "Switch {{.host}} to new release?"
+
+  - name: Swap symlink
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "ln -sfn {{.release_dir}} {{.deploy_dir}}/current"
+    on_error: abort
+
+  - name: Restart service
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "sudo systemctl restart {{.service}}"
+    timeout: 30s
+    on_error: abort
+
+  - name: Verify deployment
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "sudo systemctl status {{.service}} --no-pager && readlink {{.deploy_dir}}/current"
+    on_error: continue
+
+  - name: Clean old releases
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "ls -dt {{.deploy_dir}}/releases/*/ | tail -n +6 | xargs rm -rf"
+    on_error: continue

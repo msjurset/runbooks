@@ -1,0 +1,67 @@
+name: service-restart
+description: Template for checking service health and restarting if unhealthy
+
+variables:
+  - name: host
+    prompt: "Server hostname or IP"
+  - name: user
+    default: "deploy"
+  - name: service
+    prompt: "Service name (e.g., nginx, myapp)"
+  - name: health_url
+    prompt: "Health check URL (e.g., http://localhost:8080/health)"
+
+steps:
+  - name: Check service status
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "sudo systemctl status {{.service}} --no-pager"
+    capture: service_status
+    on_error: continue
+
+  - name: Health check
+    type: http
+    http:
+      method: GET
+      url: "{{.health_url}}"
+    capture: health_result
+    timeout: 15s
+    on_error: continue
+
+  - name: Confirm restart
+    confirm: "Restart {{.service}} on {{.host}}?"
+
+  - name: Restart service
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "sudo systemctl restart {{.service}}"
+    timeout: 30s
+    on_error: abort
+
+  - name: Wait for startup
+    type: shell
+    shell:
+      command: "sleep 5"
+
+  - name: Verify health after restart
+    type: http
+    http:
+      method: GET
+      url: "{{.health_url}}"
+    timeout: 30s
+    on_error: continue
+
+  - name: Check service status after restart
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "sudo systemctl status {{.service}} --no-pager"
+    on_error: continue

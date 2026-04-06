@@ -1,0 +1,56 @@
+name: database-backup
+description: Template for database dump, compress, and upload to remote storage
+
+variables:
+  - name: db_host
+    default: "localhost"
+  - name: db_name
+    prompt: "Database name"
+  - name: db_user
+    default: "postgres"
+  - name: remote_host
+    prompt: "Remote storage host"
+  - name: remote_user
+    default: "backup"
+  - name: remote_path
+    default: "/backups/db"
+
+steps:
+  - name: Dump database
+    type: shell
+    shell:
+      command: "pg_dump -h {{.db_host}} -U {{.db_user}} {{.db_name}} > /tmp/{{.db_name}}-$(date +%Y%m%d).sql"
+    timeout: 15m
+    on_error: abort
+
+  - name: Compress dump
+    type: shell
+    shell:
+      command: "gzip -f /tmp/{{.db_name}}-$(date +%Y%m%d).sql"
+    timeout: 5m
+    on_error: abort
+
+  - name: Upload to remote
+    type: ssh
+    ssh:
+      host: "{{.remote_host}}"
+      user: "{{.remote_user}}"
+      agent_auth: true
+      command: "cat > {{.remote_path}}/{{.db_name}}-$(date +%Y%m%d).sql.gz"
+    timeout: 10m
+    on_error: abort
+
+  - name: Verify remote file
+    type: ssh
+    ssh:
+      host: "{{.remote_host}}"
+      user: "{{.remote_user}}"
+      agent_auth: true
+      command: "ls -lh {{.remote_path}}/{{.db_name}}-$(date +%Y%m%d).sql.gz"
+    on_error: continue
+
+  - name: Clean up local dump
+    type: shell
+    shell:
+      command: "rm -f /tmp/{{.db_name}}-$(date +%Y%m%d).sql.gz"
+    on_error: continue

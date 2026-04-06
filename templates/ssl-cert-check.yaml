@@ -1,0 +1,36 @@
+name: ssl-cert-check
+description: Template for checking SSL certificate expiry on domains
+
+variables:
+  - name: domain
+    prompt: "Domain to check (e.g., example.com)"
+  - name: warn_days
+    default: "30"
+
+steps:
+  - name: Check certificate expiry
+    type: shell
+    shell:
+      command: |
+        expiry=$(echo | openssl s_client -servername {{.domain}} -connect {{.domain}}:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
+        if [ -z "$expiry" ]; then
+          echo "FAILED: Could not retrieve certificate for {{.domain}}"
+          exit 1
+        fi
+        expiry_epoch=$(date -j -f "%b %d %T %Y %Z" "$expiry" "+%s" 2>/dev/null || date -d "$expiry" "+%s" 2>/dev/null)
+        now_epoch=$(date "+%s")
+        days_left=$(( (expiry_epoch - now_epoch) / 86400 ))
+        echo "{{.domain}}: expires $expiry ($days_left days remaining)"
+        if [ "$days_left" -lt {{.warn_days}} ]; then
+          echo "WARNING: Certificate expires in less than {{.warn_days}} days"
+          exit 1
+        fi
+    capture: cert_status
+    on_error: continue
+
+  - name: Check certificate details
+    type: shell
+    shell:
+      command: |
+        echo | openssl s_client -servername {{.domain}} -connect {{.domain}}:443 2>/dev/null | openssl x509 -noout -subject -issuer -dates
+    on_error: continue

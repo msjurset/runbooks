@@ -1,0 +1,59 @@
+name: log-rotation
+description: Template for archiving, compressing, and cleaning old log files
+
+variables:
+  - name: host
+    prompt: "Server hostname or IP"
+  - name: user
+    default: "deploy"
+  - name: log_dir
+    prompt: "Log directory (e.g., /var/log/myapp)"
+  - name: archive_dir
+    default: "/var/log/archive"
+  - name: keep_days
+    default: "30"
+
+steps:
+  - name: Create archive directory
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "sudo mkdir -p {{.archive_dir}}"
+    on_error: abort
+
+  - name: Compress current logs
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        cd {{.log_dir}}
+        for f in *.log; do
+          [ -f "$f" ] || continue
+          sudo gzip -c "$f" > {{.archive_dir}}/"${f%.log}-$(date +%Y%m%d).log.gz"
+          sudo truncate -s 0 "$f"
+        done
+    timeout: 5m
+    on_error: abort
+
+  - name: Remove old archives
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "sudo find {{.archive_dir}} -name '*.gz' -mtime +{{.keep_days}} -delete"
+    timeout: 1m
+    on_error: continue
+
+  - name: Report disk usage
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "echo 'Logs:' && du -sh {{.log_dir}} && echo 'Archives:' && du -sh {{.archive_dir}}"
+    on_error: continue

@@ -1,0 +1,70 @@
+name: docker-deploy
+description: Template for deploying a Docker container with health check
+
+variables:
+  - name: host
+    prompt: "Server hostname or IP"
+  - name: user
+    default: "deploy"
+  - name: image
+    prompt: "Docker image (e.g., myapp:latest)"
+  - name: container
+    prompt: "Container name"
+  - name: port
+    default: "8080"
+
+steps:
+  - name: Pull latest image
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "docker pull {{.image}}"
+    timeout: 5m
+    on_error: abort
+
+  - name: Confirm deployment
+    confirm: "Deploy {{.image}} as {{.container}} on {{.host}}?"
+
+  - name: Stop existing container
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "docker stop {{.container}} 2>/dev/null; docker rm {{.container}} 2>/dev/null; true"
+    timeout: 30s
+    on_error: continue
+
+  - name: Start new container
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "docker run -d --name {{.container}} -p {{.port}}:{{.port}} --restart unless-stopped {{.image}}"
+    timeout: 30s
+    on_error: abort
+
+  - name: Wait for startup
+    type: shell
+    shell:
+      command: "sleep 5"
+
+  - name: Health check
+    type: http
+    http:
+      method: GET
+      url: "http://{{.host}}:{{.port}}/health"
+    timeout: 30s
+    on_error: continue
+
+  - name: Verify container running
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: "docker ps --filter name={{.container}} --format '{{`{{.Status}}`}}'"
+    on_error: continue
