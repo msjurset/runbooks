@@ -46,8 +46,14 @@ steps:
         FILE="{{.resolved_file}}"
         ARCHIVE="{{.resolved_archive}}"
         BASENAME=$(basename "$FILE" .log)
-        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-        DEST="$ARCHIVE/${BASENAME}-${TIMESTAMP}.log.gz"
+        # Only add timestamp if the filename doesn't already contain one
+        # (new-mode files have timestamps, append-mode files don't)
+        if echo "$BASENAME" | grep -qE '[0-9]{4}-[0-9]{2}-[0-9]{2}T'; then
+          DEST="$ARCHIVE/${BASENAME}.log.gz"
+        else
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          DEST="$ARCHIVE/${BASENAME}-${TIMESTAMP}.log.gz"
+        fi
         gzip -c "$FILE" > "$DEST"
         echo "$DEST"
     capture: archived_path
