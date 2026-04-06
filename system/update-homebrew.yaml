@@ -31,5 +31,6 @@ steps:
   - name: Check for issues
     type: shell
     shell:
-      command: "brew doctor"
+      # brew doctor exits 1 for warnings that aren't real problems
+      command: "brew doctor || true"
     on_error: continue
