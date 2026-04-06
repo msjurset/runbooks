@@ -22,6 +22,7 @@ All runbooks use **variables** for environment-specific values (hostnames, users
 |---------|-------------|
 | [update-pihole](system/update-pihole.yaml) | Update OS packages, Pi-hole, and gravity database on a Pi-hole server |
 | [update-homebrew](system/update-homebrew.yaml) | Update Homebrew packages and clean up old versions |
+| [rotate-runbook-logs](system/rotate-runbook-logs.yaml) | Compress and archive a log file, updating the log index |
 
 ### Templates
 

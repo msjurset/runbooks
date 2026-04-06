@@ -1,0 +1,67 @@
+name: rotate-runbook-logs
+description: Compress and archive a runbook log file, updating the log index
+
+variables:
+  - name: file
+    required: true
+    prompt: "Log file path to rotate"
+  - name: archive_dir
+    default: "~/.runbook/logs/archive"
+
+steps:
+  - name: Validate file exists
+    type: shell
+    shell:
+      command: |
+        FILE="{{.file}}"
+        # Resolve ~ if present
+        FILE="${FILE/#\~/$HOME}"
+        if [ ! -f "$FILE" ]; then
+          echo "File not found: $FILE"
+          exit 1
+        fi
+        echo "$FILE"
+    capture: resolved_file
+    on_error: abort
+
+  - name: Create archive directory
+    type: shell
+    shell:
+      command: |
+        ARCHIVE="{{.archive_dir}}"
+        ARCHIVE="${ARCHIVE/#\~/$HOME}"
+        mkdir -p "$ARCHIVE"
+        echo "$ARCHIVE"
+    capture: resolved_archive
+    on_error: abort
+
+  - name: Compress and move to archive
+    type: shell
+    shell:
+      command: |
+        FILE="{{.resolved_file}}"
+        ARCHIVE="{{.resolved_archive}}"
+        BASENAME=$(basename "$FILE")
+        gzip -c "$FILE" > "$ARCHIVE/${BASENAME}.gz"
+        echo "Compressed: $ARCHIVE/${BASENAME}.gz"
+    capture: archived_path
+    on_error: abort
+
+  - name: Update log index
+    type: shell
+    shell:
+      command: |
+        FILE="{{.resolved_file}}"
+        ARCHIVE="{{.resolved_archive}}"
+        BASENAME=$(basename "$FILE")
+        NEW_PATH="$ARCHIVE/${BASENAME}.gz"
+        runbook log update "$FILE" "$NEW_PATH"
+    on_error: continue
+
+  - name: Remove original file
+    type: shell
+    shell:
+      command: |
+        rm -f "{{.resolved_file}}"
+        echo "Removed: {{.resolved_file}}"
+    on_error: continue
