@@ -9,12 +9,16 @@ variables:
     default: "~/.runbook/logs/archive"
 
 steps:
+  - name: Wait for file to be fully written
+    type: shell
+    shell:
+      command: "sleep 5"
+
   - name: Validate file exists
     type: shell
     shell:
       command: |
         FILE="{{.file}}"
-        # Resolve ~ if present
         FILE="${FILE/#\~/$HOME}"
         if [ ! -f "$FILE" ]; then
           echo "File not found: $FILE"
@@ -55,7 +59,7 @@ steps:
         ARCHIVE="{{.resolved_archive}}"
         BASENAME=$(basename "$FILE")
         NEW_PATH="$ARCHIVE/${BASENAME}.gz"
-        runbook log update "$FILE" "$NEW_PATH"
+        "$HOME/.local/bin/runbook" log update "$FILE" "$NEW_PATH"
     on_error: continue
 
   - name: Remove original file
