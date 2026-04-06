@@ -45,9 +45,11 @@ steps:
       command: |
         FILE="{{.resolved_file}}"
         ARCHIVE="{{.resolved_archive}}"
-        BASENAME=$(basename "$FILE")
-        gzip -c "$FILE" > "$ARCHIVE/${BASENAME}.gz"
-        echo "Compressed: $ARCHIVE/${BASENAME}.gz"
+        BASENAME=$(basename "$FILE" .log)
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        DEST="$ARCHIVE/${BASENAME}-${TIMESTAMP}.log.gz"
+        gzip -c "$FILE" > "$DEST"
+        echo "$DEST"
     capture: archived_path
     on_error: abort
 
@@ -55,11 +57,7 @@ steps:
     type: shell
     shell:
       command: |
-        FILE="{{.resolved_file}}"
-        ARCHIVE="{{.resolved_archive}}"
-        BASENAME=$(basename "$FILE")
-        NEW_PATH="$ARCHIVE/${BASENAME}.gz"
-        "$HOME/.local/bin/runbook" log update "$FILE" "$NEW_PATH"
+        "$HOME/.local/bin/runbook" log update "{{.resolved_file}}" "{{.archived_path}}"
     on_error: continue
 
   - name: Remove original file
