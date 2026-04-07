@@ -31,7 +31,7 @@ steps:
         echo "Uptime:   $(uptime -p)"
         echo "Load:     $(cat /proc/loadavg | awk '{print $1, $2, $3}')"
         echo "Kernel:   $(uname -r)"
-        echo "Model:    $(cat /proc/device-tree/model 2>/dev/null || echo 'unknown')"
+        echo "Model:    $(cat /proc/device-tree/model 2>/dev/null | tr -d '\0' || echo 'unknown')"
     capture: system_info
     on_error: continue
 
@@ -323,6 +323,143 @@ steps:
         else
           echo "No reboot needed"
         fi
+    on_error: continue
+
+  # ── Summary ────────────────────────────────────────
+
+  - name: Health check summary
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        echo ""
+        echo "╔══════════════════════════════════════════╗"
+        echo "║        HEALTH CHECK SUMMARY              ║"
+        echo "╚══════════════════════════════════════════╝"
+        echo ""
+
+        # CPU Temperature
+        temp=$(vcgencmd measure_temp 2>/dev/null | grep -oP '[0-9.]+')
+        if [ $(echo "$temp > {{.temp_warn}}" | bc 2>/dev/null || echo 0) -eq 1 ]; then
+          echo "[WARNING] CPU: ${temp}°C (threshold: {{.temp_warn}}°C)"
+          echo "  ACTION: Improve ventilation or add a heatsink/fan"
+        else
+          echo "[OK] CPU: ${temp}°C"
+        fi
+
+        # Throttling
+        throttled=$(vcgencmd get_throttled 2>/dev/null | cut -d= -f2)
+        if [ "$throttled" != "0x0" ]; then
+          echo "[WARNING] Throttling detected: $throttled"
+          echo "  ACTION: Check power supply (use official 5V/3A adapter)"
+        else
+          echo "[OK] No throttling"
+        fi
+
+        # Disk
+        usage=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
+        if [ "$usage" -ge {{.disk_warn}} ]; then
+          echo "[WARNING] Disk: ${usage}% used (threshold: {{.disk_warn}}%)"
+          echo "  ACTION: Run cleanup or expand storage"
+        else
+          echo "[OK] Disk: ${usage}% used"
+        fi
+
+        # Memory
+        mem_pct=$(free | awk '/Mem:/ {printf "%.0f", $3/$2*100}')
+        if [ "$mem_pct" -ge 80 ]; then
+          echo "[WARNING] Memory: ${mem_pct}% used"
+          echo "  ACTION: Check for memory-hungry processes"
+        else
+          echo "[OK] Memory: ${mem_pct}% used"
+        fi
+
+        # DNS
+        if nslookup google.com > /dev/null 2>&1; then
+          echo "[OK] DNS resolution"
+        else
+          echo "[WARNING] DNS resolution failed"
+          echo "  ACTION: Check upstream DNS configuration"
+        fi
+
+        # Failed services
+        failed=$(systemctl --failed --no-legend 2>/dev/null | wc -l)
+        if [ "$failed" -gt 0 ]; then
+          echo "[WARNING] $failed failed systemd service(s)"
+          echo "  ACTION: Run systemctl --failed for details"
+        else
+          echo "[OK] All services running"
+        fi
+
+        # Firewall
+        if command -v ufw > /dev/null 2>&1; then
+          if sudo ufw status 2>/dev/null | grep -q "active"; then
+            echo "[OK] Firewall active"
+          else
+            echo "[INFO] Firewall installed but inactive"
+            echo "  ACTION: sudo ufw enable"
+          fi
+        else
+          echo "[INFO] No firewall installed"
+          echo "  ACTION: Consider installing: sudo apt install ufw"
+        fi
+
+        # GPU
+        gpu=$(vcgencmd get_mem gpu 2>/dev/null | grep -oP '[0-9]+')
+        if [ "${gpu:-0}" -gt 16 ]; then
+          echo "[INFO] GPU memory: ${gpu}M (headless servers can use 16M)"
+          echo "  ACTION: Set gpu_mem=16 in /boot/config.txt and reboot"
+        else
+          echo "[OK] GPU memory: ${gpu}M"
+        fi
+
+        # Firmware
+        fw_date=$(vcgencmd version 2>/dev/null | head -1)
+        if echo "$fw_date" | grep -q "2023\|2022\|2021"; then
+          echo "[WARNING] Firmware outdated: $fw_date"
+          echo "  ACTION: sudo rpi-update (backup first)"
+        else
+          echo "[OK] Firmware: $fw_date"
+        fi
+
+        # Reboot
+        if [ -f /var/run/reboot-required ]; then
+          echo "[WARNING] Reboot pending"
+          echo "  ACTION: sudo reboot"
+        else
+          echo "[OK] No reboot pending"
+        fi
+
+        # Journal size
+        journal_mb=$(sudo journalctl --disk-usage 2>/dev/null | grep -oP '[0-9.]+' | head -1)
+        log_max_mb=$(echo "{{.log_max}}" | grep -oP '[0-9]+')
+        if [ "$(echo "$journal_mb > $log_max_mb * 2" | bc 2>/dev/null || echo 0)" -eq 1 ]; then
+          echo "[INFO] Journal logs: ${journal_mb}M"
+          echo "  ACTION: sudo journalctl --vacuum-size={{.log_max}}"
+        else
+          echo "[OK] Journal logs: ${journal_mb}M"
+        fi
+
+        # Apt freshness
+        stamp=""
+        for f in /var/lib/apt/periodic/update-success-stamp /var/cache/apt/pkgcache.bin; do
+          [ -f "$f" ] && stamp="$f" && break
+        done
+        if [ -n "$stamp" ]; then
+          last=$(stat -c %Y "$stamp" 2>/dev/null)
+          now=$(date +%s)
+          days=$(( (now - last) / 86400 ))
+          if [ "$days" -gt 7 ]; then
+            echo "[WARNING] apt update: $days days ago"
+            echo "  ACTION: sudo apt update"
+          else
+            echo "[OK] apt update: $days days ago"
+          fi
+        fi
+
+        echo ""
     on_error: continue
 
 notify:
