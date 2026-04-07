@@ -1,0 +1,316 @@
+name: raspi-healthcheck
+description: Comprehensive Raspberry Pi system health check, cleanup, and tuning
+
+variables:
+  - name: host
+    prompt: "Raspberry Pi hostname or IP"
+  - name: user
+    default: "pi"
+  - name: temp_warn
+    default: "70"
+    prompt: "CPU temperature warning threshold (°C)"
+  - name: disk_warn
+    default: "80"
+    prompt: "Disk usage warning threshold (%)"
+  - name: log_max
+    default: "100M"
+    prompt: "Maximum journal log size"
+
+steps:
+  # ── System Health ──────────────────────────────────
+
+  - name: System overview
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        echo "=== System Overview ==="
+        echo "Hostname: $(hostname)"
+        echo "Uptime:   $(uptime -p)"
+        echo "Load:     $(cat /proc/loadavg | awk '{print $1, $2, $3}')"
+        echo "Kernel:   $(uname -r)"
+        echo "Model:    $(cat /proc/device-tree/model 2>/dev/null || echo 'unknown')"
+    capture: system_info
+    on_error: continue
+
+  - name: CPU temperature
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        temp=$(vcgencmd measure_temp 2>/dev/null | grep -oP '[0-9.]+')
+        echo "CPU Temperature: ${temp}°C"
+        if [ $(echo "$temp > {{.temp_warn}}" | bc 2>/dev/null || echo 0) -eq 1 ]; then
+          echo "WARNING: Temperature above {{.temp_warn}}°C threshold"
+          exit 1
+        fi
+    capture: cpu_temp
+    on_error: continue
+
+  - name: Check throttling events
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        throttled=$(vcgencmd get_throttled 2>/dev/null)
+        echo "$throttled"
+        if [ "$throttled" != "throttled=0x0" ]; then
+          echo "WARNING: Throttling detected"
+        else
+          echo "OK: No throttling"
+        fi
+    on_error: continue
+
+  - name: Memory usage
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        echo "=== Memory ==="
+        free -h | head -3
+        echo ""
+        echo "=== Swap ==="
+        swapon --show 2>/dev/null || echo "No swap configured"
+    capture: memory_info
+    on_error: continue
+
+  - name: Disk usage
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        echo "=== Disk Usage ==="
+        df -h / /boot 2>/dev/null | grep -v tmpfs
+        echo ""
+        usage=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
+        if [ "$usage" -ge {{.disk_warn}} ]; then
+          echo "WARNING: Root disk ${usage}% full (threshold: {{.disk_warn}}%)"
+          exit 1
+        else
+          echo "OK: Root disk ${usage}% used"
+        fi
+        echo ""
+        echo "=== Inode Usage ==="
+        df -i / | head -2
+    capture: disk_info
+    on_error: continue
+
+  - name: Check zombie processes
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        zombies=$(ps aux | awk '$8 ~ /Z/ {print $2, $11}')
+        if [ -n "$zombies" ]; then
+          echo "WARNING: Zombie processes found:"
+          echo "$zombies"
+        else
+          echo "OK: No zombie processes"
+        fi
+        echo ""
+        echo "Running processes: $(ps aux | wc -l)"
+    on_error: continue
+
+  # ── Network ────────────────────────────────────────
+
+  - name: Network health
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        echo "=== DNS Resolution ==="
+        if nslookup google.com > /dev/null 2>&1; then
+          echo "OK: DNS resolution working"
+        else
+          echo "FAILED: DNS resolution"
+        fi
+        echo ""
+        echo "=== Default Gateway ==="
+        gw=$(ip route | awk '/default/ {print $3}')
+        if ping -c 1 -W 2 "$gw" > /dev/null 2>&1; then
+          echo "OK: Gateway $gw reachable"
+        else
+          echo "FAILED: Gateway $gw unreachable"
+        fi
+        echo ""
+        echo "=== Listening Services ==="
+        ss -tlnp 2>/dev/null | grep LISTEN || netstat -tlnp 2>/dev/null | grep LISTEN
+        echo ""
+        echo "=== Interface Errors ==="
+        ip -s link | grep -A 2 "errors" | grep -v "^$"
+    on_error: continue
+
+  # ── Security ───────────────────────────────────────
+
+  - name: Security check
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        echo "=== Pending Security Updates ==="
+        apt list --upgradable 2>/dev/null | grep -i security || echo "None"
+        echo ""
+        echo "=== Failed SSH Logins (last 24h) ==="
+        failed=$(grep "Failed" /var/log/auth.log 2>/dev/null | grep "$(date +%b\ %d)" | wc -l)
+        echo "$failed failed attempts today"
+        echo ""
+        echo "=== Root Login Attempts ==="
+        root_attempts=$(grep "root" /var/log/auth.log 2>/dev/null | grep "Failed" | wc -l)
+        echo "$root_attempts root login failures in auth.log"
+        echo ""
+        echo "=== Firewall Status ==="
+        sudo ufw status 2>/dev/null || echo "ufw not installed"
+        echo ""
+        echo "=== Unattended Upgrades ==="
+        if dpkg -l unattended-upgrades 2>/dev/null | grep -q "^ii"; then
+          echo "Installed and configured"
+        else
+          echo "NOT installed"
+        fi
+    on_error: continue
+
+  # ── Services ───────────────────────────────────────
+
+  - name: Check failed services
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        echo "=== Failed Systemd Services ==="
+        failed=$(systemctl --failed --no-legend 2>/dev/null)
+        if [ -n "$failed" ]; then
+          echo "WARNING: Failed services:"
+          echo "$failed"
+        else
+          echo "OK: No failed services"
+        fi
+        echo ""
+        echo "=== NTP Sync ==="
+        timedatectl show -p NTPSynchronized --value 2>/dev/null || echo "unknown"
+    on_error: continue
+
+  # ── Storage Cleanup ────────────────────────────────
+
+  - name: Analyze disk waste
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        echo "=== Apt Cache ==="
+        sudo du -sh /var/cache/apt/archives/ 2>/dev/null
+        echo ""
+        echo "=== Journal Logs ==="
+        sudo journalctl --disk-usage 2>/dev/null
+        echo ""
+        echo "=== Old Kernels ==="
+        dpkg -l 'linux-image-*' 2>/dev/null | grep '^rc' | awk '{print $2}' || echo "None"
+        echo ""
+        echo "=== Tmp Files ==="
+        sudo du -sh /tmp/ 2>/dev/null
+        echo ""
+        echo "=== Large Log Files (>10MB) ==="
+        sudo find /var/log -type f -size +10M -exec ls -lh {} \; 2>/dev/null || echo "None"
+    capture: waste_report
+    on_error: continue
+
+  - name: Confirm cleanup
+    confirm: "Clean up apt cache, old kernels, journal logs, and tmp files on {{.host}}?"
+
+  - name: Run cleanup
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        echo "=== Cleaning apt cache ==="
+        sudo apt-get autoclean -y
+        echo ""
+        echo "=== Removing unused packages ==="
+        sudo apt-get autoremove -y
+        echo ""
+        echo "=== Vacuuming journal logs to {{.log_max}} ==="
+        sudo journalctl --vacuum-size={{.log_max}}
+        echo ""
+        echo "=== Cleaning tmp ==="
+        sudo find /tmp -type f -atime +7 -delete 2>/dev/null
+        echo "Removed tmp files older than 7 days"
+    timeout: 5m
+    on_error: continue
+
+  # ── Performance Tuning ─────────────────────────────
+
+  - name: Performance check
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        echo "=== GPU Memory Split ==="
+        vcgencmd get_mem gpu 2>/dev/null || echo "unknown"
+        echo "(Headless servers can use gpu_mem=16 in /boot/config.txt)"
+        echo ""
+        echo "=== Swap Configuration ==="
+        if [ -f /etc/dphys-swapfile ]; then
+          grep CONF_SWAPSIZE /etc/dphys-swapfile
+          echo "(Consider zram for better SD card lifespan)"
+        else
+          echo "dphys-swapfile not configured"
+        fi
+        echo ""
+        echo "=== Firmware Version ==="
+        vcgencmd version 2>/dev/null | head -3 || echo "unknown"
+    on_error: continue
+
+  # ── Maintenance ────────────────────────────────────
+
+  - name: Maintenance status
+    type: ssh
+    ssh:
+      host: "{{.host}}"
+      user: "{{.user}}"
+      agent_auth: true
+      command: |
+        echo "=== Last Apt Update ==="
+        if [ -f /var/lib/apt/periodic/update-success-stamp ]; then
+          last=$(stat -c %Y /var/lib/apt/periodic/update-success-stamp 2>/dev/null || stat -f %m /var/lib/apt/periodic/update-success-stamp 2>/dev/null)
+          now=$(date +%s)
+          days=$(( (now - last) / 86400 ))
+          echo "$days days ago"
+          [ "$days" -gt 7 ] && echo "WARNING: apt update is stale"
+        else
+          echo "unknown"
+        fi
+        echo ""
+        echo "=== Reboot Pending ==="
+        if [ -f /var/run/reboot-required ]; then
+          echo "YES — reboot required"
+        else
+          echo "No reboot needed"
+        fi
+    on_error: continue
+
+notify:
+  on: failure
+  desktop: true

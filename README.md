@@ -47,6 +47,7 @@ Starter templates for building your own runbooks.
 | [backup-verify](templates/backup-verify.yaml) | Verify backup freshness across all goback jobs |
 | [download-processing](templates/download-processing.yaml) | Process and organize downloaded files using sortie |
 | [project-cleanup](templates/project-cleanup.yaml) | Clean build artifacts and archive old logs using sortie |
+| [raspi-healthcheck](templates/raspi-healthcheck.yaml) | Comprehensive Raspberry Pi health check, cleanup, and tuning |
 
 ## How Variables Work
 
