@@ -78,7 +78,7 @@ steps:
         free -h | head -3
         echo ""
         echo "=== Swap ==="
-        swapon --show 2>/dev/null || echo "No swap configured"
+        swapon -s 2>/dev/null | head -5 || free -h | grep -i swap
     capture: memory_info
     on_error: continue
 
@@ -268,19 +268,29 @@ steps:
       agent_auth: true
       command: |
         echo "=== GPU Memory Split ==="
-        vcgencmd get_mem gpu 2>/dev/null || echo "unknown"
-        echo "(Headless servers can use gpu_mem=16 in /boot/config.txt)"
+        gpu=$(vcgencmd get_mem gpu 2>/dev/null | grep -oP '[0-9]+')
+        echo "GPU memory: ${gpu}M"
+        if [ "${gpu:-0}" -gt 16 ]; then
+          echo "TIP: Headless servers can use gpu_mem=16 in /boot/config.txt (currently ${gpu}M)"
+        fi
         echo ""
         echo "=== Swap Configuration ==="
         if [ -f /etc/dphys-swapfile ]; then
-          grep CONF_SWAPSIZE /etc/dphys-swapfile
-          echo "(Consider zram for better SD card lifespan)"
+          size=$(grep CONF_SWAPSIZE /etc/dphys-swapfile | grep -oP '[0-9]+')
+          echo "Swap size: ${size}MB"
+          if [ "${size:-0}" -gt 0 ]; then
+            echo "TIP: Consider zram instead of disk swap for SD card lifespan"
+          fi
         else
           echo "dphys-swapfile not configured"
         fi
         echo ""
-        echo "=== Firmware Version ==="
-        vcgencmd version 2>/dev/null | head -3 || echo "unknown"
+        echo "=== Firmware ==="
+        fw_date=$(vcgencmd version 2>/dev/null | head -1)
+        echo "$fw_date"
+        if echo "$fw_date" | grep -q "2023\|2022\|2021"; then
+          echo "WARNING: Firmware is outdated — consider sudo rpi-update"
+        fi
     on_error: continue
 
   # ── Maintenance ────────────────────────────────────
@@ -293,14 +303,18 @@ steps:
       agent_auth: true
       command: |
         echo "=== Last Apt Update ==="
-        if [ -f /var/lib/apt/periodic/update-success-stamp ]; then
-          last=$(stat -c %Y /var/lib/apt/periodic/update-success-stamp 2>/dev/null || stat -f %m /var/lib/apt/periodic/update-success-stamp 2>/dev/null)
+        stamp=""
+        for f in /var/lib/apt/periodic/update-success-stamp /var/cache/apt/pkgcache.bin; do
+          [ -f "$f" ] && stamp="$f" && break
+        done
+        if [ -n "$stamp" ]; then
+          last=$(stat -c %Y "$stamp" 2>/dev/null)
           now=$(date +%s)
           days=$(( (now - last) / 86400 ))
           echo "$days days ago"
-          [ "$days" -gt 7 ] && echo "WARNING: apt update is stale"
+          [ "$days" -gt 7 ] && echo "WARNING: apt update is stale (>7 days)"
         else
-          echo "unknown"
+          echo "Could not determine last update time"
         fi
         echo ""
         echo "=== Reboot Pending ==="
