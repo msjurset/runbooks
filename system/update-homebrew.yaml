@@ -27,6 +27,10 @@ steps:
     shell:
       command: "{{.brew}} upgrade"
     timeout: 15m
+    # brew upgrade can exit non-zero from post-install noise (Caveats lines,
+    # cask self-replacement quirks) even when every package upgraded
+    # successfully. Don't abort the runbook — let cleanup and doctor still run.
+    on_error: continue
 
   - name: Clean up old versions
     type: shell
