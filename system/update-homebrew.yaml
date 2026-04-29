@@ -1,30 +1,37 @@
 name: update-homebrew
 description: Update Homebrew packages and clean up old versions
 
+# launchd cron jobs inherit a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin),
+# which does not include /opt/homebrew/bin where Apple Silicon's brew lives.
+# Each step prepends the brew prefix so the lookups succeed under cron.
+variables:
+  - name: brew
+    default: "/opt/homebrew/bin/brew"
+
 steps:
   - name: Update Homebrew
     type: shell
     shell:
-      command: "brew update"
+      command: "{{.brew}} update"
     timeout: 2m
 
   - name: List outdated packages
     type: shell
     shell:
-      command: "brew outdated"
+      command: "{{.brew}} outdated"
     capture: outdated
     on_error: continue
 
   - name: Upgrade all packages
     type: shell
     shell:
-      command: "brew upgrade"
+      command: "{{.brew}} upgrade"
     timeout: 15m
 
   - name: Clean up old versions
     type: shell
     shell:
-      command: "brew cleanup --prune=7"
+      command: "{{.brew}} cleanup --prune=7"
     timeout: 2m
     on_error: continue
 
@@ -32,5 +39,5 @@ steps:
     type: shell
     shell:
       # brew doctor exits 1 for warnings that aren't real problems
-      command: "brew doctor || true"
+      command: "{{.brew}} doctor || true"
     on_error: continue
