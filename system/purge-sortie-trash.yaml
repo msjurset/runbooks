@@ -1,5 +1,5 @@
 name: purge-sortie-trash
-description: Permanently delete files in sortie's trash directory
+description: Permanently delete files in sortie's trash, but only if the trash exceeds the size threshold
 
 # launchd cron jobs inherit a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin)
 # that excludes ~/.local/bin where sortie is installed via `make deploy`,
@@ -9,20 +9,51 @@ description: Permanently delete files in sortie's trash directory
 variables:
   - name: sortie
     default: "~/.local/bin/sortie"
+  - name: threshold_mb
+    default: "50"
 
 steps:
+  - name: Check if trash exceeds threshold
+    type: shell
+    shell:
+      # Send the human-readable size line to stderr (so it shows in the log
+      # and console tray) and only echo true/false to stdout — the captured
+      # value is stdout-only and trimmed, so it stays clean for the
+      # downstream condition templates.
+      command: |
+        trash_dir=~/.config/sortie/trash
+        size_kb=$(du -sk "$trash_dir" 2>/dev/null | awk '{print $1}')
+        size_kb=${size_kb:-0}
+        size_mb=$((size_kb / 1024))
+        threshold_kb=$(({{.threshold_mb}} * 1024))
+        echo "Trash size: ${size_mb}M (threshold: {{.threshold_mb}}M)" >&2
+        if [ "$size_kb" -gt "$threshold_kb" ]; then
+          echo "true"
+        else
+          echo "false"
+        fi
+    capture: should_purge
+
   - name: List trash before purge
     type: shell
     shell:
       command: "{{.sortie}} trash"
     capture: trash_before
     on_error: continue
+    condition: '{{if eq .should_purge "true"}}true{{end}}'
 
   - name: Purge trash
     type: shell
     shell:
       command: "{{.sortie}} trash purge"
     timeout: 5m
+    condition: '{{if eq .should_purge "true"}}true{{end}}'
+
+  - name: Below threshold — nothing to do
+    type: shell
+    shell:
+      command: 'echo "Sortie trash is below the {{.threshold_mb}}M threshold; nothing purged."'
+    condition: '{{if eq .should_purge "false"}}true{{end}}'
 
 notify:
   on: failure
