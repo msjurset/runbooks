@@ -1,0 +1,33 @@
+name: purge-sortie-trash
+description: Permanently delete files in sortie's trash directory
+
+# launchd cron jobs inherit a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin)
+# that excludes ~/.local/bin where sortie is installed via `make deploy`,
+# so the binary path is templated explicitly. Tilde expansion works because
+# the runbook engine ensures HOME is set in the child process's environment
+# before invoking `sh -c`.
+variables:
+  - name: sortie
+    default: "~/.local/bin/sortie"
+
+steps:
+  - name: List trash before purge
+    type: shell
+    shell:
+      command: "{{.sortie}} trash"
+    capture: trash_before
+    on_error: continue
+
+  - name: Purge trash
+    type: shell
+    shell:
+      command: "{{.sortie}} trash purge"
+    timeout: 5m
+
+notify:
+  on: failure
+  desktop: true
+
+log:
+  enabled: true
+  mode: append
